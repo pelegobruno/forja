@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Painel Administrativo | Instituto Forja</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f7f6; padding: 20px; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h2 { color: #075e54; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; font-size: 0.9rem; }
+        th { background-color: #075e54; color: white; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Painel de Atendimentos e Agendamentos - Instituto Forja</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Data e Hora</th>
+                    <th>Tipo de Atendimento</th>
+                    <th>Nome</th>
+                    <th>Detalhes ou Horario Escolhido</th>
+                </tr>
+            </thead>
+            <tbody id="tabela-corpo">
+                <tr><td colspan="4" style="text-align: center;">Carregando registros...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        fetch('/api/agendamentos')
+            .then(res => res.json())
+            .then(dados => {
+                const tbody = document.getElementById('tabela-corpo');
+                if (dados.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">Nenhum atendimento registrado no momento.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = dados.reverse().map(item => `
+                    <tr>
+                        <td>${item.dataRegistro}</td>
+                        <td><strong>${item.tipo}</strong></td>
+                        <td>${item.nome}</td>
+                        <td>${item.horario ? '<strong>Horario: ' + item.horario + '</strong>' : item.detalhes}</td>
+                    </tr>
+                `).join('');
+            });
+    </script>
+</body>
+</html>

@@ -1,0 +1,307 @@
+{
+  "14581548216360@lid": {
+    "criadoEm": "24/11/2026, 15:52:19",
+    "atualizadoEm": "25/11/2026, 22:35:17",
+    "fluxoAtual": "MENU",
+    "nomeIdentificado": null,
+    "temasVistos": [
+      "Valores",
+      "Horarios",
+      "CRAS"
+    ],
+    "mensagens": [
+      {
+        "autor": "cliente",
+        "texto": "Oi",
+        "hora": "22:20"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Leitura breve da conversa:\n- Assuntos tratados: Valores, Horarios\n- Ultimas falas: \"Tudo bem\" | \"Pode falar\" | \"Oi\"\n\nSeguimos por aqui! Se quiser mudar de assunto, digite 1 a 5 ou 'menu'.",
+        "hora": "22:20"
+      },
+      {
+        "autor": "cliente",
+        "texto": "Boa noite",
+        "hora": "22:29"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Leitura breve da conversa:\n- Assuntos tratados: Valores, Horarios\n- Ultimas falas: \"Pode falar\" | \"Oi\" | \"Boa noite\"\n\nSeguimos por aqui! Se quiser mudar de assunto, digite 1 a 5 ou 'menu'.",
+        "hora": "22:29"
+      },
+      {
+        "autor": "cliente",
+        "texto": "1",
+        "hora": "22:30"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Atendimento - CRAS\n\nResponda em uma mensagem:\n- Nome completo\n- Quantos filhos moram com voce e idades\n- Se ja tem documento de encaminhamento",
+        "hora": "22:30"
+      },
+      {
+        "autor": "cliente",
+        "texto": "Bruno costa",
+        "hora": "22:30"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Valores - Instituto Forja (RAF)\n\nAvaliacao inicial: R$ 70,00.\nServe para entender sua demanda e definir o plano de cuidado.\n\nDigite 3 para iniciar triagem Particular, 5 para horarios ou 'menu'.",
+        "hora": "22:30"
+      },
+      {
+        "autor": "cliente",
+        "texto": "Oi",
+        "hora": "22:35"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Leitura breve da conversa:\n- Assuntos tratados: Valores, Horarios, CRAS\n- Ultimas falas: \"1\" | \"Bruno costa\" | \"Oi\"\n\nSeguimos por aqui! Se quiser mudar de assunto, digite 1 a 5 ou 'menu'.",
+        "hora": "22:35"
+      },
+      {
+        "autor": "cliente",
+        "texto": "5",
+        "hora": "22:35"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Horarios da Avaliacao Inicial (R$ 70,00):\n\n- Seg: 14h, 15h, 16h\n- Ter: 9h, 10h, 14h\n- Qua: 14h, 15h, 17h\n- Qui: 9h, 10h, 15h\n- Sex: 9h, 14h\n\nDigite 3 para iniciar triagem Particular ou 'menu' para voltar.",
+        "hora": "22:35"
+      }
+    ]
+  },
+  "205819194921090@lid": {
+    "criadoEm": "24/11/2026, 17:00:35",
+    "atualizadoEm": "24/11/2026, 17:01:52",
+    "fluxoAtual": "MENU",
+    "nomeIdentificado": null,
+    "temasVistos": [
+      "Particular"
+    ],
+    "mensagens": [
+      {
+        "autor": "cliente",
+        "texto": "Oi",
+        "hora": "17:00"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Instituto Forja - Atendimento Oficial\n\nDigite o numero ou palavra-chave:\n1 - CRAS (encaminhamento)\n2 - SCFV Idosos (60+)\n3 - Particular / RAF (avaliacao)\n4 - Valores\n5 - Horarios\n\nDica: envie 'resumo' para ver o que ja conversamos ou 'menu' para opcoes.",
+        "hora": "17:00"
+      },
+      {
+        "autor": "cliente",
+        "texto": "Oi",
+        "hora": "17:00"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Leitura breve da conversa:\n- Ultimas falas: \"Oi\" | \"Oi\"\n\nSeguimos por aqui! Se quiser mudar de assunto, digite 1 a 5 ou 'menu'.",
+        "hora": "17:00"
+      },
+      {
+        "autor": "cliente",
+        "texto": "3",
+        "hora": "17:01"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Atendimento - Particular (RAF)\n\nResponda em uma mensagem:\n- Nome e idade de quem sera atendido\n- Se e para voce ou outra pessoa",
+        "hora": "17:01"
+      },
+      {
+        "autor": "cliente",
+        "texto": "Luciana, 51 anos",
+        "hora": "17:01"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Dados registrados com sucesso para Cliente WhatsApp (921090). Nossa equipe do Instituto Forja vai analisar e continuar o atendimento por aqui. Digite 'resumo' para rever ou 'menu' para outras opcoes.",
+        "hora": "17:01"
+      }
+    ]
+  },
+  "118309957693461@lid": {
+    "criadoEm": "24/11/2026, 17:04:31",
+    "atualizadoEm": "24/11/2026, 17:06:06",
+    "fluxoAtual": "MENU",
+    "nomeIdentificado": null,
+    "temasVistos": [
+      "CRAS"
+    ],
+    "mensagens": [
+      {
+        "autor": "cliente",
+        "texto": "‎Instituto Forja agradece seu contato. Como podemos ajudar?",
+        "hora": "17:04"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Instituto Forja - Atendimento Oficial\n\nDigite o numero ou palavra-chave:\n1 - CRAS (encaminhamento)\n2 - SCFV Idosos (60+)\n3 - Particular / RAF (avaliacao)\n4 - Valores\n5 - Horarios\n\nDica: envie 'resumo' para ver o que ja conversamos ou 'menu' para opcoes.",
+        "hora": "17:04"
+      },
+      {
+        "autor": "cliente",
+        "texto": "1",
+        "hora": "17:05"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Atendimento - CRAS\n\nResponda em uma mensagem:\n- Nome completo\n- Quantos filhos moram com voce e idades\n- Se ja tem documento de encaminhamento",
+        "hora": "17:05"
+      },
+      {
+        "autor": "cliente",
+        "texto": "Luciana \n1 filho \nCom encaminhamento",
+        "hora": "17:06"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Dados registrados com sucesso para Cliente WhatsApp (693461). Nossa equipe do Instituto Forja vai analisar e continuar o atendimento por aqui. Digite 'resumo' para rever ou 'menu' para outras opcoes.",
+        "hora": "17:06"
+      }
+    ]
+  },
+  "165455679512659@lid": {
+    "telefone": "165455679512659@lid",
+    "etapa": "aguardando_equipe",
+    "status": "aguardando_equipe",
+    "ultimaInteracao": "2026-11-24T23:34:48.674Z",
+    "dados": {
+      "nome": "Bruno costa",
+      "modalidade": null,
+      "formato": null,
+      "dataEscolhida": null,
+      "horaEscolhida": null,
+      "datasOpcoes": [],
+      "horariosOpcoes": []
+    },
+    "historico": [
+      {
+        "origem": "paciente",
+        "texto": "Oi",
+        "em": "2026-11-24T23:32:11.651Z"
+      },
+      {
+        "origem": "bot",
+        "texto": "Olá! Sou a secretária virtual da clínica. Vou te fazer algumas perguntas rápidas para direcionar seu atendimento e ver horários.\n\nQual é o seu nome completo?",
+        "em": "2026-11-24T23:32:11.651Z"
+      },
+      {
+        "origem": "paciente",
+        "texto": "Bruno costa",
+        "em": "2026-11-24T23:32:22.365Z"
+      },
+      {
+        "origem": "bot",
+        "texto": "Prazer, *Bruno costa*! Qual tipo de atendimento você procura?\n1 - Particular\n2 - CRAS\n3 - SCFV Idosos\n4 - RAF / Rede Forja\n5 - Falar com a equipe",
+        "em": "2026-11-24T23:32:22.365Z"
+      },
+      {
+        "origem": "paciente",
+        "texto": "5",
+        "em": "2026-11-24T23:32:27.443Z"
+      },
+      {
+        "origem": "bot",
+        "texto": "Certo, *Bruno costa*. Já anotei seu contato e logo mais a equipe responderá por aqui.",
+        "em": "2026-11-24T23:32:27.443Z"
+      },
+      {
+        "origem": "paciente",
+        "texto": "Oi",
+        "em": "2026-11-24T23:34:35.046Z"
+      },
+      {
+        "origem": "paciente",
+        "texto": "Quero ajuda",
+        "em": "2026-11-24T23:34:48.674Z"
+      }
+    ]
+  },
+  "135725395755151@lid": {
+    "telefone": "135725395755151@lid",
+    "etapa": "coletando_nome",
+    "status": "ativa",
+    "ultimaInteracao": "2026-11-24T23:32:45.313Z",
+    "dados": {
+      "nome": null,
+      "modalidade": null,
+      "formato": null,
+      "dataEscolhida": null,
+      "horaEscolhida": null,
+      "datasOpcoes": [],
+      "horariosOpcoes": []
+    },
+    "historico": [
+      {
+        "origem": "paciente",
+        "texto": "😂",
+        "em": "2026-11-24T23:32:45.313Z"
+      },
+      {
+        "origem": "bot",
+        "texto": "Olá! Sou a secretária virtual da clínica. Vou te fazer algumas perguntas rápidas para direcionar seu atendimento e ver horários.\n\nQual é o seu nome completo?",
+        "em": "2026-11-24T23:32:45.313Z"
+      }
+    ]
+  },
+  "217471508336796@lid": {
+    "telefone": "217471508336796@lid",
+    "etapa": "coletando_modalidade",
+    "status": "ativa",
+    "ultimaInteracao": "2026-11-24T23:35:23.485Z",
+    "dados": {
+      "nome": "Ta",
+      "modalidade": null,
+      "formato": null,
+      "dataEscolhida": null,
+      "horaEscolhida": null,
+      "datasOpcoes": [],
+      "horariosOpcoes": []
+    },
+    "historico": [
+      {
+        "origem": "paciente",
+        "texto": "Ta",
+        "em": "2026-11-24T23:35:21.477Z"
+      },
+      {
+        "origem": "bot",
+        "texto": "Olá! Sou a secretária virtual da clínica. Vou te fazer algumas perguntas rápidas para direcionar seu atendimento e ver horários.\n\nQual é o seu nome completo?",
+        "em": "2026-11-24T23:35:21.477Z"
+      },
+      {
+        "origem": "paciente",
+        "texto": "Ta",
+        "em": "2026-11-24T23:35:23.485Z"
+      },
+      {
+        "origem": "bot",
+        "texto": "Prazer, *Ta*! Qual tipo de atendimento você procura?\n1 - Particular\n2 - CRAS\n3 - SCFV Idosos\n4 - RAF / Rede Forja\n5 - Falar com a equipe",
+        "em": "2026-11-24T23:35:23.485Z"
+      }
+    ]
+  },
+  "35026112663617@lid": {
+    "criadoEm": "25/11/2026, 22:20:49",
+    "atualizadoEm": "25/11/2026, 22:20:49",
+    "fluxoAtual": "MENU",
+    "nomeIdentificado": null,
+    "temasVistos": [],
+    "mensagens": [
+      {
+        "autor": "cliente",
+        "texto": "Oi",
+        "hora": "22:20"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Instituto Forja - Atendimento Oficial\n\nDigite o numero ou palavra-chave:\n1 - CRAS (encaminhamento)\n2 - SCFV Idosos (60+)\n3 - Particular / RAF (avaliacao)\n4 - Valores\n5 - Horarios\n\nDica: envie 'resumo' para ver o que ja conversamos ou 'menu' para opcoes.",
+        "hora": "22:20"
+      }
+    ]
+  }
+}
