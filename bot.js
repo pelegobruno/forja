@@ -21,8 +21,13 @@ const {
     registrarParecerSuperior,
     refinarRespostaChefe
 } = require('./chefeEspecialista');
+const {
+    renderizarPaginaQrHtml,
+    tratarRotaAdmin
+} = require('./adminPainel');
 
 const DB_FILE = path.join(__dirname, 'agendamentos.json');
+const CONTATOS_FILE = path.join(__dirname, 'contatos.json');
 const AUTH_DIR = path.join(__dirname, 'auth_baileys');
 const JANELA_AGRUPAMENTO_MS = 1400;
 
@@ -37,6 +42,9 @@ let reconexaoTimer = null;
 if (!fs.existsSync(DB_FILE)) {
     fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2), 'utf8');
 }
+if (!fs.existsSync(CONTATOS_FILE)) {
+    fs.writeFileSync(CONTATOS_FILE, JSON.stringify([], null, 2), 'utf8');
+}
 
 function marcarIdProcessado(msgId) {
     if (!msgId) return false;
@@ -47,6 +55,67 @@ function marcarIdProcessado(msgId) {
         idsProcessados.delete(primeiro);
     }
     return false;
+}
+
+async function registrarContato(chatId, { nomePush, textoRecebido, nomeTriagem } = {}) {
+    if (!chatId) return;
+    const agoraMs = Date.now();
+    const agoraTexto = new Date(agoraMs).toLocaleString('pt-BR');
+    const telefone = chatId.split('@')[0];
+    const docId = chatId.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    let listaLocal = [];
+    try {
+        const raw = fs.readFileSync(CONTATOS_FILE, 'utf8');
+        if (raw.trim()) listaLocal = JSON.parse(raw);
+    } catch (_) {
+        listaLocal = [];
+    }
+
+    const idx = listaLocal.findIndex((c) => c.chatId === chatId);
+    const anterior = idx >= 0 ? listaLocal[idx] : null;
+    const nomeDefinido =
+        nomeTriagem ||
+        nomePush ||
+        (anterior && anterior.nome && anterior.nome !== 'Sem nome' ? anterior.nome : 'Sem nome');
+
+    const registro = {
+        id: docId,
+        chatId,
+        telefone,
+        nome: nomeDefinido,
+        primeiraMensagem: anterior?.primeiraMensagem || textoRecebido || '',
+        ultimaMensagem: textoRecebido || anterior?.ultimaMensagem || '',
+        totalMensagens: (anterior?.totalMensagens || 0) + (textoRecebido ? 1 : 0),
+        criadoEmMs: anterior?.criadoEmMs || agoraMs,
+        criadoEmTexto: anterior?.criadoEmTexto || agoraTexto,
+        ultimaInteracaoEm: agoraMs,
+        ultimaInteracaoTexto: agoraTexto
+    };
+
+    if (idx >= 0) listaLocal[idx] = registro;
+    else listaLocal.push(registro);
+
+    try {
+        fs.writeFileSync(CONTATOS_FILE, JSON.stringify(listaLocal, null, 2), 'utf8');
+    } catch (e) {
+        console.error('Erro ao salvar contato local:', e.message);
+    }
+
+    const db = getDb();
+    if (db) {
+        try {
+            await db.collection('contatos').doc(docId).set(
+                {
+                    ...registro,
+                    atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+                },
+                { merge: true }
+            );
+        } catch (e) {
+            console.error('Erro ao salvar contato no Firestore:', e.message);
+        }
+    }
 }
 
 async function atualizarStatusBot(status, qrString = null) {
@@ -93,6 +162,10 @@ async function salvarRegistro(novoDado) {
         console.error('Erro ao salvar backup local:', e.message);
     }
 
+    if (novoDado.chatId && novoDado.nome) {
+        await registrarContato(novoDado.chatId, { nomeTriagem: novoDado.nome });
+    }
+
     const db = getDb();
     if (db) {
         try {
@@ -123,143 +196,22 @@ function estaConectado() {
     return statusAtualBot === 'online' && !ultimoQrAtual;
 }
 
-function renderizarPaginaQrHtml(qrDataUrl) {
-    const conectado = estaConectado();
-    const rotuloStatus = conectado ? 'Conectado' : 'Desconectado';
-
-    return `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WhatsApp QR Code</title>
-  <style>
-    * { box-sizing: border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #090d16;
-      color: #f8fafc;
-      padding: 20px;
-    }
-    .box {
-      width: 100%;
-      max-width: 340px;
-      background: #111827;
-      border: 1px solid #1f2937;
-      border-radius: 18px;
-      padding: 28px 24px;
-      text-align: center;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 20px;
-      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
-    }
-    .status {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 14px;
-      border-radius: 999px;
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.2px;
-      background: ${conectado ? 'rgba(16, 185, 129, 0.14)' : 'rgba(239, 68, 68, 0.14)'};
-      color: ${conectado ? '#34d399' : '#f87171'};
-      border: 1px solid ${conectado ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.35)'};
-    }
-    .status.online {
-      background: rgba(16, 185, 129, 0.14);
-      color: #34d399;
-      border-color: rgba(16, 185, 129, 0.35);
-    }
-    .status.offline {
-      background: rgba(239, 68, 68, 0.14);
-      color: #f87171;
-      border-color: rgba(239, 68, 68, 0.35);
-    }
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: currentColor;
-    }
-    .qr-wrap {
-      background: #ffffff;
-      padding: 14px;
-      border-radius: 14px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-    }
-    .qr-wrap img {
-      display: block;
-      width: 228px;
-      height: 228px;
-    }
-    .btn {
-      width: 100%;
-      padding: 11px 18px;
-      border: none;
-      border-radius: 10px;
-      background: #2563eb;
-      color: #ffffff;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s ease;
-    }
-    .btn:hover { background: #1d4ed8; }
-    .btn:active { transform: translateY(1px); }
-  </style>
-</head>
-<body>
-  <div class="box">
-    <div id="statusBadge" class="status ${conectado ? 'online' : 'offline'}">
-      <span class="dot"></span>
-      <span id="statusTexto">${rotuloStatus}</span>
-    </div>
-    <div id="qrArea">${qrDataUrl ? `<div class="qr-wrap"><img id="qrImg" src="${qrDataUrl}" alt="QR Code" /></div>` : ''}</div>
-    <button id="btnAtualizar" class="btn" type="button">Atualizar</button>
-  </div>
-
-  <script>
-    let ultimoQrRenderizado = ${JSON.stringify(qrDataUrl || '')};
-    let ultimoConectadoRenderizado = ${JSON.stringify(conectado)};
-
-    async function sincronizarEstado() {
-      try {
-        const resp = await fetch('/api/status', { cache: 'no-store' });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        const conectadoAgora = Boolean(data.conectado);
-        const qrAgora = data.qrDataUrl || '';
-
-        if (conectadoAgora !== ultimoConectadoRenderizado) {
-          ultimoConectadoRenderizado = conectadoAgora;
-          const badge = document.getElementById('statusBadge');
-          const texto = document.getElementById('statusTexto');
-          badge.className = 'status ' + (conectadoAgora ? 'online' : 'offline');
-          texto.textContent = conectadoAgora ? 'Conectado' : 'Desconectado';
-        }
-
-        if (qrAgora !== ultimoQrRenderizado) {
-          ultimoQrRenderizado = qrAgora;
-          const qrArea = document.getElementById('qrArea');
-          qrArea.innerHTML = qrAgora
-            ? '<div class="qr-wrap"><img id="qrImg" src="' + qrAgora + '" alt="QR Code" /></div>'
-            : '';
-        }
-      } catch (_) {}
-    }
-
-    document.getElementById('btnAtualizar').addEventListener('click', sincronizarEstado);
-    setInterval(sincronizarEstado, 2000);
-  </script>
-</body>
-</html>`;
+function lerCorpoJson(req) {
+    return new Promise((resolve, reject) => {
+        let bruto = '';
+        req.on('data', (chunk) => {
+            bruto += chunk.toString('utf8');
+            if (bruto.length > 100000) reject(new Error('Payload muito grande'));
+        });
+        req.on('end', () => {
+            try {
+                resolve(bruto ? JSON.parse(bruto) : {});
+            } catch (_) {
+                reject(new Error('JSON invalido'));
+            }
+        });
+        req.on('error', reject);
+    });
 }
 
 function iniciarAutoPing() {
@@ -271,16 +223,15 @@ function iniciarAutoPing() {
 
     setInterval(() => {
         try {
-            cliente.get(destino, (res) => {
-                res.resume();
-            }).on('error', () => {});
+            cliente.get(destino, (res) => res.resume()).on('error', () => {});
         } catch (_) {}
     }, 8 * 60 * 1000);
 }
 
 const PORT = process.env.PORT || 3000;
 http.createServer(async (req, res) => {
-    const rota = (req.url || '/').split('?')[0];
+    const urlCompleta = new URL(req.url || '/', `http://localhost:${PORT}`);
+    const rota = urlCompleta.pathname;
 
     if (rota === '/api/status' || rota === '/status' || rota === '/health') {
         try {
@@ -295,12 +246,27 @@ http.createServer(async (req, res) => {
                 qrDataUrl,
                 atualizadoEm: new Date().toLocaleString('pt-BR')
             }));
-        } catch (e) {
+        } catch (_) {
             res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ erro: 'Falha ao obter estado' }));
         }
         return;
     }
+
+    const tratadoPeloAdmin = await tratarRotaAdmin(req, res, rota, urlCompleta, {
+        dbFile: DB_FILE,
+        contatosFile: CONTATOS_FILE,
+        getDb,
+        estaConectado,
+        statusAtualBot,
+        lerCorpoJson,
+        onReset: () => {
+            Object.keys(sessoes).forEach((k) => delete sessoes[k]);
+            idsProcessados.clear();
+            filaAgrupamento.clear();
+        }
+    });
+    if (tratadoPeloAdmin) return;
 
     if (rota === '/' || rota === '/qr') {
         try {
@@ -309,8 +275,8 @@ http.createServer(async (req, res) => {
                 'Content-Type': 'text/html; charset=utf-8',
                 'Cache-Control': 'no-store'
             });
-            res.end(renderizarPaginaQrHtml(qrDataUrl));
-        } catch (e) {
+            res.end(renderizarPaginaQrHtml(qrDataUrl, estaConectado()));
+        } catch (_) {
             res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
             res.end('Erro ao gerar QR Code');
         }
@@ -335,9 +301,14 @@ function agendarReconexao(delayMs = 3000) {
     }, delayMs);
 }
 
-async function processarLoteMensagens(sock, chatId, textos) {
+async function processarLoteMensagens(sock, chatId, textos, nomePush = '') {
     const textoConsolidado = textos.join('\n').trim();
     if (!textoConsolidado) return;
+
+    await registrarContato(chatId, {
+        nomePush,
+        textoRecebido: textoConsolidado
+    });
 
     const mem = await carregarMemoriaContato(chatId);
 
@@ -385,15 +356,16 @@ async function processarLoteMensagens(sock, chatId, textos) {
     }
 }
 
-function enfileirarMensagem(sock, chatId, textoOriginal) {
-    const atual = filaAgrupamento.get(chatId) || { textos: [], timer: null };
+function enfileirarMensagem(sock, chatId, textoOriginal, nomePush = '') {
+    const atual = filaAgrupamento.get(chatId) || { textos: [], nomePush: '', timer: null };
     atual.textos.push(textoOriginal);
+    if (nomePush) atual.nomePush = nomePush;
     if (atual.timer) clearTimeout(atual.timer);
 
     atual.timer = setTimeout(async () => {
         filaAgrupamento.delete(chatId);
         try {
-            await processarLoteMensagens(sock, chatId, atual.textos);
+            await processarLoteMensagens(sock, chatId, atual.textos, atual.nomePush);
         } catch (err) {
             console.error('[ERRO processarLoteMensagens]', err.message);
         }
@@ -488,10 +460,11 @@ async function iniciarBot() {
                 }
 
                 const textoOriginal = extrairTexto(msg);
+                const nomePush = (msg.pushName || '').trim();
                 console.log(`[RECEBIDO] De: ${chatId} | Texto: "${textoOriginal}"`);
                 if (!textoOriginal) continue;
 
-                enfileirarMensagem(sock, chatId, textoOriginal);
+                enfileirarMensagem(sock, chatId, textoOriginal, nomePush);
             } catch (err) {
                 console.error('[ERRO processarMensagem]', err.message);
             }

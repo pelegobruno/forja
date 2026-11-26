@@ -51,10 +51,10 @@ function verificarTokenAdmin(req) {
     }
 }
 
-function lerAgendamentosLocais(dbFile) {
+function lerJsonArray(arquivo) {
     try {
-        if (!fs.existsSync(dbFile)) return [];
-        const raw = fs.readFileSync(dbFile, 'utf8');
+        if (!fs.existsSync(arquivo)) return [];
+        const raw = fs.readFileSync(arquivo, 'utf8');
         if (!raw.trim()) return [];
         const parsed = JSON.parse(raw);
         return Array.isArray(parsed) ? parsed : [];
@@ -103,20 +103,24 @@ async function limparColecaoFirestore(db, nomeColecao) {
     return removidos;
 }
 
-async function resetarDadosOficiais({ dbFile, getDb, onReset }) {
+async function resetarDadosOficiais({ dbFile, contatosFile, getDb, onReset }) {
     fs.writeFileSync(dbFile, JSON.stringify([], null, 2), 'utf8');
+    if (contatosFile) {
+        fs.writeFileSync(contatosFile, JSON.stringify([], null, 2), 'utf8');
+    }
     if (typeof onReset === 'function') {
         onReset();
     }
 
     const db = getDb();
-    let removidosFirestore = { agendamentos: 0, conversas: 0, supervisao_chefe: 0 };
+    let removidosFirestore = { agendamentos: 0, conversas: 0, supervisao_chefe: 0, contatos: 0 };
 
     if (db) {
         removidosFirestore = {
             agendamentos: await limparColecaoFirestore(db, 'agendamentos'),
             conversas: await limparColecaoFirestore(db, 'conversas'),
-            supervisao_chefe: await limparColecaoFirestore(db, 'supervisao_chefe')
+            supervisao_chefe: await limparColecaoFirestore(db, 'supervisao_chefe'),
+            contatos: await limparColecaoFirestore(db, 'contatos')
         };
     }
 
@@ -140,28 +144,33 @@ async function executarResetInicialSeSolicitado(contexto) {
 }
 
 async function montarPainelAdmin(contexto, periodoRaw = '7d') {
-    const { dbFile, getDb, estaConectado, statusAtualBot } = contexto;
+    const { dbFile, contatosFile, getDb, estaConectado, statusAtualBot } = contexto;
     const periodo = ['hoje', '7d', '30d', 'tudo'].includes(periodoRaw) ? periodoRaw : '7d';
     const db = getDb();
     let agendamentos = [];
     let conversas = [];
     let supervisao = [];
+    let contatosDocs = [];
     let statusDoc = null;
     let firestoreLeuAgendamentos = false;
+    let firestoreLeuContatos = false;
 
     if (db) {
         try {
-            const [snapAgend, snapConv, snapSup, docStatus] = await Promise.all([
+            const [snapAgend, snapConv, snapSup, snapCont, docStatus] = await Promise.all([
                 db.collection('agendamentos').get(),
                 db.collection('conversas').get(),
                 db.collection('supervisao_chefe').get(),
+                db.collection('contatos').get(),
                 db.collection('bot_status').doc('whatsapp').get()
             ]);
 
             firestoreLeuAgendamentos = true;
+            firestoreLeuContatos = true;
             agendamentos = snapAgend.docs.map((d) => ({ id: d.id, ...d.data() }));
             conversas = snapConv.docs.map((d) => ({ id: d.id, ...d.data() }));
             supervisao = snapSup.docs.map((d) => ({ id: d.id, ...d.data() }));
+            contatosDocs = snapCont.docs.map((d) => ({ id: d.id, ...d.data() }));
             if (docStatus.exists) statusDoc = docStatus.data();
         } catch (e) {
             console.error('[ERRO montarPainelAdmin Firestore]', e.message);
@@ -169,7 +178,11 @@ async function montarPainelAdmin(contexto, periodoRaw = '7d') {
     }
 
     if (!firestoreLeuAgendamentos && !agendamentos.length) {
-        agendamentos = lerAgendamentosLocais(dbFile);
+        agendamentos = lerJsonArray(dbFile);
+    }
+
+    if (!firestoreLeuContatos && !contatosDocs.length && contatosFile) {
+        contatosDocs = lerJsonArray(contatosFile);
     }
 
     const agora = Date.now();
@@ -219,30 +232,77 @@ async function montarPainelAdmin(contexto, periodoRaw = '7d') {
     const limiteAtualMs = 24 * 60 * 60 * 1000;
     const contatosMap = new Map();
 
+    contatosDocs.forEach((ct) => {
+        const cid = ct.chatId || ct.id;
+        if (!cid) return;
+        const tsUltima = extrairTimestamp(ct.ultimaInteracaoEm) || extrairTimestamp(ct.atualizadoEm);
+        contatosMap.set(cid, {
+            chatId: cid,
+            telefone: ct.telefone || cid.split('@')[0],
+            nome: ct.nome || 'Sem nome',
+            totalMensagens: Number(ct.totalMensagens || 0),
+            ultimaMensagem: ct.ultimaMensagem || '',
+            ultimaInteracaoTexto: ct.ultimaInteracaoTexto || '',
+            ultimaInteracaoMs: tsUltima,
+            msgs: [],
+            fluxoAtual: 'MENU'
+        });
+    });
+
     conversas.forEach((c) => {
         const cid = c.chatId || c.id;
         if (!cid) return;
         const tsAtualizado = extrairTimestamp(c.atualizadoEm);
-        if (corteMs > 0 && (!tsAtualizado || tsAtualizado < corteMs)) return;
-        contatosMap.set(cid, {
+        const atual = contatosMap.get(cid) || {
             chatId: cid,
-            msgs: Array.isArray(c.msgs) ? c.msgs : [],
-            fluxoAtual: c.fluxoAtual || 'MENU',
-            atualizadoMs: tsAtualizado
+            telefone: cid.split('@')[0],
+            nome: 'Sem nome',
+            totalMensagens: 0,
+            ultimaMensagem: '',
+            ultimaInteracaoTexto: '',
+            ultimaInteracaoMs: 0,
+            msgs: [],
+            fluxoAtual: 'MENU'
+        };
+        const msgs = Array.isArray(c.msgs) ? c.msgs : [];
+        const ultimaCliente = [...msgs].reverse().find((m) => !m.origem || m.origem === 'cliente');
+        contatosMap.set(cid, {
+            ...atual,
+            msgs,
+            fluxoAtual: c.fluxoAtual || atual.fluxoAtual || 'MENU',
+            totalMensagens: Math.max(atual.totalMensagens, msgs.filter((m) => !m.origem || m.origem === 'cliente').length),
+            ultimaMensagem: ultimaCliente?.texto || atual.ultimaMensagem || '',
+            ultimaInteracaoMs: Math.max(atual.ultimaInteracaoMs, tsAtualizado)
         });
     });
 
-    agendamentosFiltrados.forEach((a) => {
+    agendamentos.forEach((a) => {
         if (!a.chatId) return;
-        if (!contatosMap.has(a.chatId)) {
-            contatosMap.set(a.chatId, {
-                chatId: a.chatId,
-                msgs: [],
-                fluxoAtual: 'MENU',
-                atualizadoMs: a.ts || 0
-            });
-        }
+        const cid = a.chatId;
+        const tsAg = extrairTimestamp(a.criadoEm) || extrairTimestamp(a.id);
+        const atual = contatosMap.get(cid) || {
+            chatId: cid,
+            telefone: a.contato || cid.split('@')[0],
+            nome: a.nome || 'Sem nome',
+            totalMensagens: 0,
+            ultimaMensagem: '',
+            ultimaInteracaoTexto: a.dataRegistro || '',
+            ultimaInteracaoMs: 0,
+            msgs: [],
+            fluxoAtual: 'MENU'
+        };
+        contatosMap.set(cid, {
+            ...atual,
+            nome: a.nome && atual.nome === 'Sem nome' ? a.nome : atual.nome,
+            telefone: a.contato || atual.telefone,
+            ultimaInteracaoMs: Math.max(atual.ultimaInteracaoMs, tsAg),
+            ultimaInteracaoTexto: atual.ultimaInteracaoTexto || a.dataRegistro || ''
+        });
     });
+
+    const contatosNoPeriodo = Array.from(contatosMap.values()).filter(
+        (c) => corteMs === 0 || (c.ultimaInteracaoMs > 0 && c.ultimaInteracaoMs >= corteMs)
+    );
 
     const historicoAgendContato = new Map();
     agendamentosFiltrados.forEach((a) => {
@@ -254,10 +314,10 @@ async function montarPainelAdmin(contexto, periodoRaw = '7d') {
     let atuais = 0;
     let antigos = 0;
 
-    contatosMap.forEach((c, cid) => {
-        const qtdMsgs = c.msgs.length;
-        const qtdAgend = historicoAgendContato.get(cid) || 0;
-        const recente = c.atualizadoMs > 0 && (agora - c.atualizadoMs) <= limiteAtualMs;
+    contatosNoPeriodo.forEach((c) => {
+        const qtdMsgs = c.msgs.length || c.totalMensagens || 0;
+        const qtdAgend = historicoAgendContato.get(c.chatId) || 0;
+        const recente = c.ultimaInteracaoMs > 0 && (agora - c.ultimaInteracaoMs) <= limiteAtualMs;
 
         if (qtdAgend > 1 || (!recente && qtdMsgs > 4)) {
             antigos += 1;
@@ -285,6 +345,19 @@ async function montarPainelAdmin(contexto, periodoRaw = '7d') {
         });
     }
 
+    const contatosOrdenados = contatosNoPeriodo
+        .sort((a, b) => b.ultimaInteracaoMs - a.ultimaInteracaoMs)
+        .slice(0, 20)
+        .map((c) => ({
+            chatId: c.chatId,
+            nome: c.nome || 'Sem nome',
+            telefone: c.telefone || c.chatId.split('@')[0],
+            totalMensagens: c.totalMensagens || c.msgs.length || 0,
+            agendamentos: historicoAgendContato.get(c.chatId) || 0,
+            ultimaMensagem: c.ultimaMensagem || '-',
+            ultimaInteracaoTexto: c.ultimaInteracaoTexto || (c.ultimaInteracaoMs ? new Date(c.ultimaInteracaoMs).toLocaleString('pt-BR') : '-')
+        }));
+
     return {
         periodo,
         whatsapp: {
@@ -305,6 +378,7 @@ async function montarPainelAdmin(contexto, periodoRaw = '7d') {
             antigos: { qtd: antigos, pct: pctAntigos }
         },
         seriePeriodo: serie,
+        contatosRecentes: contatosOrdenados,
         agendamentosRecentes: agendamentosFiltrados.slice(0, 15).map((a) => ({
             id: a.id,
             nome: a.nome || 'Sem nome',
@@ -366,14 +440,52 @@ function renderizarPaginaQrHtml(qrDataUrl, conectado) {
     }
     .btn-adm:hover { background: #334155; }
     .modal-backdrop {
-      position: fixed; inset: 0; background: rgba(2, 6, 23, 0.82); display: none;
-      align-items: center; justify-content: center; padding: 16px; z-index: 50; overflow-y: auto;
+      position: fixed; inset: 0; background: rgba(2, 6, 23, 0.82); backdrop-filter: blur(4px);
+      display: none; align-items: center; justify-content: center; padding: 16px; z-index: 50; overflow-y: auto;
     }
     .modal-backdrop.aberto { display: flex; }
+    .modal-backdrop.topo { z-index: 80; background: rgba(2, 6, 23, 0.88); }
     .login-card {
       width: 100%; max-width: 380px; background: #111827; border: 1px solid #1f2937;
       border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 14px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
     }
+    .confirm-card {
+      width: 100%; max-width: 420px; background: #111827; border: 1px solid #1f2937;
+      border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 14px;
+      text-align: left; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+    }
+    .confirm-badge {
+      display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+      padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+      letter-spacing: 0.03em; text-transform: uppercase;
+      background: rgba(239, 68, 68, 0.16); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.35);
+    }
+    .confirm-card h3 { margin: 0; font-size: 18px; color: #f8fafc; }
+    .confirm-card p { margin: 0; font-size: 13.5px; line-height: 1.5; color: #94a3b8; }
+    .confirm-lista {
+      margin: 0; padding-left: 18px; font-size: 12.5px; color: #cbd5e1;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .confirm-acoes { display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; }
+    .btn-cancelar-modal {
+      padding: 10px 16px; border-radius: 10px; border: 1px solid #334155;
+      background: #1e293b; color: #e2e8f0; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .btn-cancelar-modal:hover { background: #334155; }
+    .btn-confirmar-reset {
+      padding: 10px 18px; border-radius: 10px; border: 1px solid rgba(239, 68, 68, 0.5);
+      background: #dc2626; color: #ffffff; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .btn-confirmar-reset:hover:not(:disabled) { background: #b91c1c; }
+    .btn-confirmar-reset:disabled { opacity: 0.65; cursor: not-allowed; }
+    .toast-aviso {
+      position: fixed; bottom: 20px; right: 20px; z-index: 95;
+      background: #111827; color: #f8fafc; border: 1px solid rgba(16, 185, 129, 0.45);
+      border-radius: 12px; padding: 12px 16px; font-size: 13px; font-weight: 500;
+      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55); display: none; align-items: center; gap: 8px;
+    }
+    .toast-aviso.visivel { display: flex; }
     .login-card h2, .adm-header h2 { margin: 0; font-size: 18px; }
     .campo { display: flex; flex-direction: column; gap: 6px; text-align: left; font-size: 13px; color: #cbd5e1; }
     .campo input {
@@ -382,7 +494,7 @@ function renderizarPaginaQrHtml(qrDataUrl, conectado) {
     }
     .erro-msg { color: #f87171; font-size: 13px; min-height: 18px; text-align: left; }
     .adm-painel {
-      width: 100%; max-width: 1060px; max-height: 92vh; overflow-y: auto;
+      width: 100%; max-width: 1120px; max-height: 92vh; overflow-y: auto;
       background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 22px;
       display: flex; flex-direction: column; gap: 18px;
     }
@@ -455,6 +567,29 @@ function renderizarPaginaQrHtml(qrDataUrl, conectado) {
     </form>
   </div>
 
+  <div id="modalConfirmReset" class="modal-backdrop topo" role="dialog" aria-modal="true" aria-labelledby="tituloConfirmReset">
+    <div class="confirm-card">
+      <span class="confirm-badge">Ação irreversível</span>
+      <h3 id="tituloConfirmReset">Resetar dados oficiais?</h3>
+      <p>Isso apagará os registros atuais para iniciar do zero com base oficial:</p>
+      <ul class="confirm-lista">
+        <li>Agendamentos e triagens salvos</li>
+        <li>Contatos registrados e histórico de conversas</li>
+        <li>Pareceres da supervisão</li>
+      </ul>
+      <div id="erroConfirmReset" class="erro-msg"></div>
+      <div class="confirm-acoes">
+        <button type="button" id="btnCancelarReset" class="btn-cancelar-modal">Cancelar</button>
+        <button type="button" id="btnConfirmarReset" class="btn-confirmar-reset">Confirmar reset</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toastAviso" class="toast-aviso" role="status" aria-live="polite">
+    <span style="color:#34d399;font-weight:700;">✓</span>
+    <span id="toastTexto">Dados oficiais resetados.</span>
+  </div>
+
   <div id="modalAdm" class="modal-backdrop">
     <div class="adm-painel">
       <div class="adm-header">
@@ -493,6 +628,24 @@ function renderizarPaginaQrHtml(qrDataUrl, conectado) {
         </div>
       </div>
 
+      <div class="card">
+        <div style="font-weight: 600; margin-bottom: 10px;">Contatos Registrados</div>
+        <div style="overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Nome / Telefone</th>
+                <th>Msgs</th>
+                <th>Agend.</th>
+                <th>Última mensagem</th>
+                <th>Última interação</th>
+              </tr>
+            </thead>
+            <tbody id="tabelaContatos"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="grid-2">
         <div class="card">
           <div style="font-weight: 600; margin-bottom: 10px;">Agendamentos / Triagens</div>
@@ -525,8 +678,17 @@ function renderizarPaginaQrHtml(qrDataUrl, conectado) {
     let ultimoConectadoRenderizado = ${JSON.stringify(conectado)};
     let tokenAdm = sessionStorage.getItem('forja_adm_token') || '';
     let periodoAtual = '7d';
+    let toastTimer = null;
 
     const rotulosPeriodo = { hoje: 'Hoje', '7d': '7 dias', '30d': '30 dias', tudo: 'Todo o histórico oficial' };
+
+    function mostrarToast(mensagem) {
+      const el = document.getElementById('toastAviso');
+      document.getElementById('toastTexto').textContent = mensagem;
+      el.classList.add('visivel');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('visivel'), 3500);
+    }
 
     async function sincronizarEstado() {
       try {
@@ -616,6 +778,18 @@ function renderizarPaginaQrHtml(qrDataUrl, conectado) {
 
       renderGrafico(dados.seriePeriodo || []);
 
+      document.getElementById('tabelaContatos').innerHTML = (dados.contatosRecentes || []).length
+        ? dados.contatosRecentes.map((ct) =>
+            '<tr>' +
+              '<td><strong>' + ct.nome + '</strong><br><span style="color:#94a3b8;font-size:12px;">' + ct.telefone + '</span></td>' +
+              '<td>' + ct.totalMensagens + '</td>' +
+              '<td>' + ct.agendamentos + '</td>' +
+              '<td>' + (ct.ultimaMensagem || '-') + '</td>' +
+              '<td>' + (ct.ultimaInteracaoTexto || '-') + '</td>' +
+            '</tr>'
+          ).join('')
+        : '<tr><td colspan="5" style="color:#94a3b8;">Nenhum contato registrado no período.</td></tr>';
+
       document.getElementById('tabelaAgendamentos').innerHTML = (dados.agendamentosRecentes || []).length
         ? dados.agendamentosRecentes.map((a) =>
             '<tr><td>' + a.nome + '</td><td>' + a.tipo + '</td><td>' + a.contato + '</td><td>' + a.dataRegistro + '</td></tr>'
@@ -660,13 +834,30 @@ function renderizarPaginaQrHtml(qrDataUrl, conectado) {
       }
     }
 
-    async function resetarDadosOficiais() {
+    function abrirPopupReset() {
       if (!tokenAdm) {
         abrirModal('modalLogin');
         return;
       }
-      const confirmar = window.confirm('Deseja resetar todos os registros de agendamentos, conversas e supervisão para iniciar do zero com dados oficiais?');
-      if (!confirmar) return;
+      document.getElementById('erroConfirmReset').textContent = '';
+      abrirModal('modalConfirmReset');
+    }
+
+    async function executarResetConfirmado() {
+      if (!tokenAdm) {
+        fecharModal('modalConfirmReset');
+        abrirModal('modalLogin');
+        return;
+      }
+
+      const btnConfirmar = document.getElementById('btnConfirmarReset');
+      const btnCancelar = document.getElementById('btnCancelarReset');
+      const erroEl = document.getElementById('erroConfirmReset');
+
+      btnConfirmar.disabled = true;
+      btnCancelar.disabled = true;
+      btnConfirmar.textContent = 'Resetando...';
+      erroEl.textContent = '';
 
       try {
         const resp = await fetch('/api/admin/resetar', {
@@ -676,12 +867,27 @@ function renderizarPaginaQrHtml(qrDataUrl, conectado) {
         if (resp.status === 401 || resp.status === 403) {
           tokenAdm = '';
           sessionStorage.removeItem('forja_adm_token');
+          fecharModal('modalConfirmReset');
           fecharModal('modalAdm');
           abrirModal('modalLogin');
           return;
         }
-        if (resp.ok) await carregarPainelAdmin();
-      } catch (_) {}
+        const dadosReset = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          erroEl.textContent = dadosReset.erro || 'Não foi possível resetar os dados.';
+          return;
+        }
+
+        fecharModal('modalConfirmReset');
+        await carregarPainelAdmin();
+        mostrarToast('Dados oficiais resetados com sucesso.');
+      } catch (_) {
+        erroEl.textContent = 'Falha de conexão ao resetar os dados.';
+      } finally {
+        btnConfirmar.disabled = false;
+        btnCancelar.disabled = false;
+        btnConfirmar.textContent = 'Confirmar reset';
+      }
     }
 
     document.querySelectorAll('.btn-periodo').forEach((btn) => {
@@ -696,7 +902,15 @@ function renderizarPaginaQrHtml(qrDataUrl, conectado) {
     document.getElementById('btnAbrirAdm').addEventListener('click', carregarPainelAdmin);
     document.getElementById('btnFecharLogin').addEventListener('click', () => fecharModal('modalLogin'));
     document.getElementById('btnAtualizarAdm').addEventListener('click', carregarPainelAdmin);
-    document.getElementById('btnResetarDados').addEventListener('click', resetarDadosOficiais);
+    document.getElementById('btnResetarDados').addEventListener('click', abrirPopupReset);
+    document.getElementById('btnCancelarReset').addEventListener('click', () => fecharModal('modalConfirmReset'));
+    document.getElementById('btnConfirmarReset').addEventListener('click', executarResetConfirmado);
+    document.getElementById('modalConfirmReset').addEventListener('click', (ev) => {
+      if (ev.target.id === 'modalConfirmReset') fecharModal('modalConfirmReset');
+    });
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') fecharModal('modalConfirmReset');
+    });
     document.getElementById('btnSairAdm').addEventListener('click', () => {
       tokenAdm = '';
       sessionStorage.removeItem('forja_adm_token');
