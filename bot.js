@@ -460,8 +460,12 @@ const MENSAGENS = {
         "Digite 3 para iniciar triagem Particular ou 'menu' para voltar."
 };
 
+function estaConectado() {
+    return statusAtualBot === 'online' && !ultimoQrAtual;
+}
+
 function renderizarPaginaQrHtml(qrDataUrl) {
-    const conectado = statusAtualBot === 'online' && !qrDataUrl;
+    const conectado = estaConectado();
     const rotuloStatus = conectado ? 'Conectado' : 'Desconectado';
 
     return `<!DOCTYPE html>
@@ -509,11 +513,21 @@ function renderizarPaginaQrHtml(qrDataUrl) {
       color: ${conectado ? '#34d399' : '#f87171'};
       border: 1px solid ${conectado ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.35)'};
     }
+    .status.online {
+      background: rgba(16, 185, 129, 0.14);
+      color: #34d399;
+      border-color: rgba(16, 185, 129, 0.35);
+    }
+    .status.offline {
+      background: rgba(239, 68, 68, 0.14);
+      color: #f87171;
+      border-color: rgba(239, 68, 68, 0.35);
+    }
     .dot {
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: ${conectado ? '#34d399' : '#f87171'};
+      background: currentColor;
     }
     .qr-wrap {
       background: #ffffff;
@@ -544,13 +558,47 @@ function renderizarPaginaQrHtml(qrDataUrl) {
 </head>
 <body>
   <div class="box">
-    <div class="status">
+    <div id="statusBadge" class="status ${conectado ? 'online' : 'offline'}">
       <span class="dot"></span>
-      <span>${rotuloStatus}</span>
+      <span id="statusTexto">${rotuloStatus}</span>
     </div>
-    ${qrDataUrl ? `<div class="qr-wrap"><img src="${qrDataUrl}" alt="QR Code" /></div>` : ''}
-    <button class="btn" type="button" onclick="window.location.reload()">Atualizar</button>
+    <div id="qrArea">${qrDataUrl ? `<div class="qr-wrap"><img id="qrImg" src="${qrDataUrl}" alt="QR Code" /></div>` : ''}</div>
+    <button id="btnAtualizar" class="btn" type="button">Atualizar</button>
   </div>
+
+  <script>
+    let ultimoQrRenderizado = ${JSON.stringify(qrDataUrl || '')};
+    let ultimoConectadoRenderizado = ${JSON.stringify(conectado)};
+
+    async function sincronizarEstado() {
+      try {
+        const resp = await fetch('/api/status', { cache: 'no-store' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const conectadoAgora = Boolean(data.conectado);
+        const qrAgora = data.qrDataUrl || '';
+
+        if (conectadoAgora !== ultimoConectadoRenderizado) {
+          ultimoConectadoRenderizado = conectadoAgora;
+          const badge = document.getElementById('statusBadge');
+          const texto = document.getElementById('statusTexto');
+          badge.className = 'status ' + (conectadoAgora ? 'online' : 'offline');
+          texto.textContent = conectadoAgora ? 'Conectado' : 'Desconectado';
+        }
+
+        if (qrAgora !== ultimoQrRenderizado) {
+          ultimoQrRenderizado = qrAgora;
+          const qrArea = document.getElementById('qrArea');
+          qrArea.innerHTML = qrAgora
+            ? '<div class="qr-wrap"><img id="qrImg" src="' + qrAgora + '" alt="QR Code" /></div>'
+            : '';
+        }
+      } catch (_) {}
+    }
+
+    document.getElementById('btnAtualizar').addEventListener('click', sincronizarEstado);
+    setInterval(sincronizarEstado, 2000);
+  </script>
 </body>
 </html>`;
 }
@@ -559,10 +607,33 @@ const PORT = process.env.PORT || 3000;
 http.createServer(async (req, res) => {
     const rota = (req.url || '/').split('?')[0];
 
+    if (rota === '/api/status' || rota === '/status') {
+        try {
+            const qrDataUrl = ultimoQrAtual ? await QRCode.toDataURL(ultimoQrAtual) : null;
+            res.writeHead(200, {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Cache-Control': 'no-store'
+            });
+            res.end(JSON.stringify({
+                conectado: estaConectado(),
+                status: statusAtualBot,
+                qrDataUrl,
+                atualizadoEm: new Date().toLocaleString('pt-BR')
+            }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ erro: 'Falha ao obter estado' }));
+        }
+        return;
+    }
+
     if (rota === '/' || rota === '/qr') {
         try {
             const qrDataUrl = ultimoQrAtual ? await QRCode.toDataURL(ultimoQrAtual) : null;
-            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.writeHead(200, {
+                'Content-Type': 'text/html; charset=utf-8',
+                'Cache-Control': 'no-store'
+            });
             res.end(renderizarPaginaQrHtml(qrDataUrl));
         } catch (e) {
             res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -571,22 +642,10 @@ http.createServer(async (req, res) => {
         return;
     }
 
-    if (rota === '/status') {
-        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({
-            servico: 'Secretaria Virtual Instituto Forja',
-            status: statusAtualBot,
-            firestore: isFirestoreAtivo(),
-            qrPendente: Boolean(ultimoQrAtual),
-            atualizadoEm: new Date().toLocaleString('pt-BR')
-        }));
-        return;
-    }
-
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Nao encontrado');
 }).listen(PORT, () => {
-    console.log(`Servidor HTTP ativo na porta ${PORT} (QR em /qr e JSON em /status)`);
+    console.log(`Servidor HTTP ativo na porta ${PORT} (QR em /qr e estado em /api/status)`);
 });
 
 async function iniciarBot() {
@@ -619,6 +678,8 @@ async function iniciarBot() {
         }
 
         if (connection === 'open') {
+            statusAtualBot = 'online';
+            ultimoQrAtual = null;
             await atualizarStatusBot('online', null);
             console.log('Secretaria virtual do Instituto Forja ONLINE e pronta para responder!');
         }
@@ -626,7 +687,9 @@ async function iniciarBot() {
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             const deveReconectar = statusCode !== DisconnectReason.loggedOut;
-            await atualizarStatusBot(deveReconectar ? 'reconectando' : 'desconectado', null);
+            statusAtualBot = deveReconectar ? 'reconectando' : 'desconectado';
+            ultimoQrAtual = null;
+            await atualizarStatusBot(statusAtualBot, null);
             console.log('Conexao encerrada. Codigo:', statusCode, '| Reconectando:', deveReconectar);
             if (deveReconectar) {
                 setTimeout(iniciarBot, 2000);
