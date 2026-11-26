@@ -2,9 +2,9 @@
   "name": "secretaria-forja",
   "version": "1.0.0",
   "description": "Secretaria virtual da clinica com WhatsApp, QR Code, memoria no Firestore e agendamento",
-  "main": "src/index.js",
+  "main": "bot.js",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node bot.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc14",
@@ -13,7 +13,6 @@
     "firebase-admin": "^12.7.0",
     "pino": "^10.4.0",
     "qrcode": "^1.5.4",
-    "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "^1.34.8"
+    "qrcode-terminal": "^0.12.0"
   }
 }
