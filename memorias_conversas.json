@@ -1,10 +1,12 @@
 {
   "14581548216360@lid": {
     "criadoEm": "26/11/2026, 15:19:35",
-    "atualizadoEm": "26/11/2026, 15:20:03",
+    "atualizadoEm": "26/11/2026, 15:45:32",
     "fluxoAtual": "MENU",
     "nomeIdentificado": "Boa tarde",
-    "temasVistos": [],
+    "temasVistos": [
+      "Horarios"
+    ],
     "mensagens": [
       {
         "autor": "cliente",
@@ -35,6 +37,26 @@
         "autor": "secretaria",
         "texto": "Oi Boa tarde! Que bom falar com você de novo.\n\nResumo da nossa conversa até aqui:\n• Nome: Boa tarde\n• Últimas mensagens: \"Oi\" | \"Boa tarde\" | \"Oi\"\n\nQuer continuar por aqui ou ver outras opções? (Digite *1* a *5* ou *menu*)",
         "hora": "15:20"
+      },
+      {
+        "autor": "cliente",
+        "texto": "Oibom dia",
+        "hora": "15:45"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Os horários disponíveis para a avaliação inicial (*R$ 70,00*) são:\n\n• *Seg:* 14h, 15h, 16h\n• *Ter:* 9h, 10h, 14h\n• *Qua:* 14h, 15h, 17h\n• *Qui:* 9h, 10h, 15h\n• *Sex:* 9h, 14h\n\nDigite *3* para iniciar a triagem particular ou *menu* para voltar ao início.",
+        "hora": "15:45"
+      },
+      {
+        "autor": "cliente",
+        "texto": "Tudo bem",
+        "hora": "15:45"
+      },
+      {
+        "autor": "secretaria",
+        "texto": "Boa tarde, Como estávamos falando sobre *Horarios*, não tenho certeza se entendi o que você precisa agora.\n\nVocê pode me explicar de outro jeito, digitar *1* a *5*, pedir *resumo* ou enviar *menu*.",
+        "hora": "15:45"
       }
     ]
   }
