@@ -96,12 +96,14 @@ async function useFirestoreAuthState(localBackupDir = null) {
         get: async (type, ids) => {
             const resultado = {};
             const client = getDb();
-            if (!client) return resultado;
+            if (!client || !Array.isArray(ids) || ids.length === 0) return resultado;
 
-            for (const id of ids) {
-                const docId = docIdChave(type, id);
-                try {
-                    const snap = await client.collection(DOC_KEYS).doc(docId).get();
+            try {
+                const refs = ids.map((id) => client.collection(DOC_KEYS).doc(docIdChave(type, id)));
+                const snaps = await client.getAll(...refs);
+
+                snaps.forEach((snap, idx) => {
+                    const id = ids[idx];
                     if (snap.exists && snap.data()?.payload) {
                         let valor = desserializar(snap.data().payload);
                         if (type === 'app-state-sync-key' && valor) {
@@ -109,33 +111,42 @@ async function useFirestoreAuthState(localBackupDir = null) {
                         }
                         resultado[id] = valor;
                     }
-                } catch (e) {
-                    console.error(`Erro ao ler chave ${docId} no Firestore:`, e.message);
-                }
+                });
+            } catch (e) {
+                console.error(`Erro ao ler chaves (${type}) no Firestore:`, e.message);
             }
+
             return resultado;
         },
 
         set: async (data) => {
             const client = getDb();
-            if (!client) return;
+            if (!client || !data || typeof data !== 'object') return;
 
-            for (const [type, idsMap] of Object.entries(data || {})) {
-                for (const [id, valor] of Object.entries(idsMap || {})) {
-                    const docId = docIdChave(type, id);
-                    try {
+            try {
+                const batch = client.batch();
+                let operacoes = 0;
+
+                for (const [type, idsMap] of Object.entries(data)) {
+                    for (const [id, valor] of Object.entries(idsMap || {})) {
+                        const ref = client.collection(DOC_KEYS).doc(docIdChave(type, id));
                         if (valor) {
-                            await client.collection(DOC_KEYS).doc(docId).set({
+                            batch.set(ref, {
                                 payload: serializar(valor),
                                 atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
                             });
                         } else {
-                            await client.collection(DOC_KEYS).doc(docId).delete();
+                            batch.delete(ref);
                         }
-                    } catch (e) {
-                        console.error(`Erro ao salvar chave ${docId} no Firestore:`, e.message);
+                        operacoes++;
                     }
                 }
+
+                if (operacoes > 0) {
+                    await batch.commit();
+                }
+            } catch (e) {
+                console.error('Erro ao salvar chaves no Firestore:', e.message);
             }
         }
     };
@@ -151,10 +162,12 @@ async function limparSessaoFirestore(localBackupDir = null) {
     if (db) {
         try {
             await db.collection(COLECAO_AUTH).doc(DOC_CREDS).delete();
-            const snapKeys = await db.collection(DOC_KEYS).limit(300).get();
-            const batch = db.batch();
-            snapKeys.docs.forEach((doc) => batch.delete(doc.ref));
-            await batch.commit();
+            const snapKeys = await db.collection(DOC_KEYS).limit(400).get();
+            if (!snapKeys.empty) {
+                const batch = db.batch();
+                snapKeys.docs.forEach((doc) => batch.delete(doc.ref));
+                await batch.commit();
+            }
         } catch (e) {
             console.error('Erro ao limpar sessão no Firestore:', e.message);
         }

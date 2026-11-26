@@ -23,7 +23,8 @@ const AUTH_DIR = path.join(__dirname, 'auth_baileys');
 const sessoes = {};
 let statusAtualBot = 'iniciando';
 let ultimoQrAtual = null;
-let reconexaoAgendada = false;
+let reconexaoTimer = null;
+let sockAtual = null;
 
 if (!fs.existsSync(DB_FILE)) {
     fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2), 'utf8');
@@ -304,8 +305,23 @@ http.createServer(async (req, res) => {
     iniciarAutoPing();
 });
 
+function agendarReconexao(delayMs = 3000) {
+    if (reconexaoTimer) clearTimeout(reconexaoTimer);
+    reconexaoTimer = setTimeout(() => {
+        reconexaoTimer = null;
+        iniciarBot().catch((err) => {
+            console.error('[ERRO iniciarBot]', err.message);
+            agendarReconexao(5000);
+        });
+    }, delayMs);
+}
+
 async function iniciarBot() {
-    reconexaoAgendada = false;
+    if (reconexaoTimer) {
+        clearTimeout(reconexaoTimer);
+        reconexaoTimer = null;
+    }
+
     console.log(
         isFirestoreAtivo()
             ? 'Firestore conectado (projeto clinica-forja)!'
@@ -321,8 +337,14 @@ async function iniciarBot() {
         syncFullHistory: false
     });
 
+    sockAtual = sock;
+
     sock.ev.on('creds.update', async () => {
-        await saveCreds(state.creds);
+        try {
+            await saveCreds(state.creds);
+        } catch (e) {
+            console.error('[ERRO creds.update]', e.message);
+        }
     });
 
     sock.ev.on('connection.update', async (update) => {
@@ -352,19 +374,12 @@ async function iniciarBot() {
                 await limparSessaoFirestore(AUTH_DIR);
             }
 
-            const deveReconectar = !deslogado;
-            statusAtualBot = deveReconectar ? 'reconectando' : 'desconectado';
+            statusAtualBot = deslogado ? 'desconectado' : 'reconectando';
             ultimoQrAtual = null;
             await atualizarStatusBot(statusAtualBot, null);
-            console.log('Conexao encerrada. Codigo:', statusCode, '| Reconectando:', deveReconectar);
+            console.log('Conexao encerrada. Codigo:', statusCode, '| Deslogado:', deslogado);
 
-            if (deveReconectar && !reconexaoAgendada) {
-                reconexaoAgendada = true;
-                setTimeout(iniciarBot, 2500);
-            } else if (deslogado && !reconexaoAgendada) {
-                reconexaoAgendada = true;
-                setTimeout(iniciarBot, 2500);
-            }
+            agendarReconexao(deslogado ? 4000 : 2500);
         }
     });
 
@@ -372,48 +387,57 @@ async function iniciarBot() {
         console.log(`[EVENTO] messages.upsert (${type}) - qtd: ${messages.length}`);
 
         for (const msg of messages) {
-            if (!msg.message) continue;
+            try {
+                if (!msg.message) continue;
 
-            const chatId = msg.key.remoteJid;
-            if (!chatId || chatId.endsWith('@g.us') || chatId === 'status@broadcast') continue;
+                const chatId = msg.key.remoteJid;
+                if (!chatId || chatId.endsWith('@g.us') || chatId === 'status@broadcast') continue;
 
-            if (msg.key.fromMe) {
-                console.log(`[IGNORADO] Mensagem propria (fromMe=true) em ${chatId}`);
-                continue;
-            }
+                if (msg.key.fromMe) {
+                    console.log(`[IGNORADO] Mensagem propria (fromMe=true) em ${chatId}`);
+                    continue;
+                }
 
-            const textoOriginal = extrairTexto(msg);
-            console.log(`[RECEBIDO] De: ${chatId} | Texto: "${textoOriginal}"`);
-            if (!textoOriginal) continue;
+                const textoOriginal = extrairTexto(msg);
+                console.log(`[RECEBIDO] De: ${chatId} | Texto: "${textoOriginal}"`);
+                if (!textoOriginal) continue;
 
-            const mem = await carregarMemoriaContato(chatId);
+                const mem = await carregarMemoriaContato(chatId);
 
-            if (!sessoes[chatId]) {
-                sessoes[chatId] = {
-                    etapa: mem.fluxoAtual || 'MENU',
-                    dados: mem.fluxoAtual && mem.fluxoAtual !== 'MENU'
-                        ? { tipo: mem.fluxoAtual.replace('_ANDAMENTO', '') }
-                        : {}
-                };
-            }
+                if (!sessoes[chatId]) {
+                    sessoes[chatId] = {
+                        etapa: mem.fluxoAtual || 'MENU',
+                        dados: mem.fluxoAtual && mem.fluxoAtual !== 'MENU'
+                            ? { tipo: mem.fluxoAtual.replace('_ANDAMENTO', '') }
+                            : {}
+                    };
+                }
 
-            const sessao = sessoes[chatId];
-            await registrarNaMemoria(chatId, 'cliente', textoOriginal);
+                const sessao = sessoes[chatId];
+                await registrarNaMemoria(chatId, 'cliente', textoOriginal);
 
-            const respostaTexto = await responderHumanizado(
-                chatId,
-                textoOriginal,
-                sessao,
-                salvarRegistro
-            );
+                const respostaTexto = await responderHumanizado(
+                    chatId,
+                    textoOriginal,
+                    sessao,
+                    salvarRegistro
+                );
 
-            if (respostaTexto) {
-                await registrarNaMemoria(chatId, 'secretaria', respostaTexto);
-                await sock.sendMessage(chatId, { text: respostaTexto });
-                console.log(`[ENVIADO] Para: ${chatId}`);
+                if (respostaTexto) {
+                    await registrarNaMemoria(chatId, 'secretaria', respostaTexto);
+                    await sock.sendMessage(chatId, { text: respostaTexto });
+                    console.log(`[ENVIADO] Para: ${chatId}`);
+                } else {
+                    console.log(`[SEM RESPOSTA] responderHumanizado retornou vazio para ${chatId}`);
+                }
+            } catch (err) {
+                console.error('[ERRO processarMensagem]', err.message);
             }
         }
     });
 }
 
-iniciarBot();
+iniciarBot().catch((err) => {
+    console.error('[ERRO fatal iniciarBot]', err.message);
+    agendarReconexao(4000);
+});
