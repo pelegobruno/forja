@@ -1,15 +1,16 @@
 const {
     default: makeWASocket,
-    useMultiFileAuthState,
     DisconnectReason
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
 const QRCode = require('qrcode');
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { admin, getDb, isFirestoreAtivo } = require('./firebase');
+const { useFirestoreAuthState, limparSessaoFirestore } = require('./authFirestore');
 const {
     carregarMemoriaContato,
     registrarNaMemoria,
@@ -22,6 +23,7 @@ const AUTH_DIR = path.join(__dirname, 'auth_baileys');
 const sessoes = {};
 let statusAtualBot = 'iniciando';
 let ultimoQrAtual = null;
+let reconexaoAgendada = false;
 
 if (!fs.existsSync(DB_FILE)) {
     fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2), 'utf8');
@@ -240,11 +242,27 @@ function renderizarPaginaQrHtml(qrDataUrl) {
 </html>`;
 }
 
+function iniciarAutoPing() {
+    const urlBase = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').trim();
+    if (!urlBase) return;
+
+    const destino = `${urlBase.replace(/\/+$/, '')}/api/status`;
+    const cliente = destino.startsWith('https://') ? https : http;
+
+    setInterval(() => {
+        try {
+            cliente.get(destino, (res) => {
+                res.resume();
+            }).on('error', () => {});
+        } catch (_) {}
+    }, 8 * 60 * 1000);
+}
+
 const PORT = process.env.PORT || 3000;
 http.createServer(async (req, res) => {
     const rota = (req.url || '/').split('?')[0];
 
-    if (rota === '/api/status' || rota === '/status') {
+    if (rota === '/api/status' || rota === '/status' || rota === '/health') {
         try {
             const qrDataUrl = ultimoQrAtual ? await QRCode.toDataURL(ultimoQrAtual) : null;
             res.writeHead(200, {
@@ -283,16 +301,18 @@ http.createServer(async (req, res) => {
     res.end('Nao encontrado');
 }).listen(PORT, () => {
     console.log(`Servidor HTTP ativo na porta ${PORT} (QR em /qr e estado em /api/status)`);
+    iniciarAutoPing();
 });
 
 async function iniciarBot() {
+    reconexaoAgendada = false;
     console.log(
         isFirestoreAtivo()
             ? 'Firestore conectado (projeto clinica-forja)!'
             : 'Aviso: Firestore inativo (verifique .env). Usando backup local.'
     );
 
-    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    const { state, saveCreds } = await useFirestoreAuthState(AUTH_DIR);
 
     const sock = makeWASocket({
         auth: state,
@@ -301,7 +321,9 @@ async function iniciarBot() {
         syncFullHistory: false
     });
 
-    sock.ev.on('creds.update', saveCreds);
+    sock.ev.on('creds.update', async () => {
+        await saveCreds(state.creds);
+    });
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
@@ -317,19 +339,31 @@ async function iniciarBot() {
         if (connection === 'open') {
             statusAtualBot = 'online';
             ultimoQrAtual = null;
+            await saveCreds(state.creds);
             await atualizarStatusBot('online', null);
             console.log('Secretaria virtual do Instituto Forja ONLINE e pronta para responder!');
         }
 
         if (connection === 'close') {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
-            const deveReconectar = statusCode !== DisconnectReason.loggedOut;
+            const deslogado = statusCode === DisconnectReason.loggedOut;
+
+            if (deslogado) {
+                await limparSessaoFirestore(AUTH_DIR);
+            }
+
+            const deveReconectar = !deslogado;
             statusAtualBot = deveReconectar ? 'reconectando' : 'desconectado';
             ultimoQrAtual = null;
             await atualizarStatusBot(statusAtualBot, null);
             console.log('Conexao encerrada. Codigo:', statusCode, '| Reconectando:', deveReconectar);
-            if (deveReconectar) {
-                setTimeout(iniciarBot, 2000);
+
+            if (deveReconectar && !reconexaoAgendada) {
+                reconexaoAgendada = true;
+                setTimeout(iniciarBot, 2500);
+            } else if (deslogado && !reconexaoAgendada) {
+                reconexaoAgendada = true;
+                setTimeout(iniciarBot, 2500);
             }
         }
     });
