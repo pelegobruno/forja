@@ -5,6 +5,8 @@ const {
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
+const QRCode = require('qrcode');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { admin, getDb, isFirestoreAtivo } = require('./firebase');
@@ -15,6 +17,8 @@ const AUTH_DIR = path.join(__dirname, 'auth_baileys');
 
 const sessoes = {};
 let memoriasSalvas = {};
+let statusAtualBot = 'iniciando';
+let ultimoQrAtual = null;
 
 if (!fs.existsSync(DB_FILE)) {
     fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2), 'utf8');
@@ -45,6 +49,9 @@ function persistirMemoriasLocal() {
 }
 
 async function atualizarStatusBot(status, qrString = null) {
+    statusAtualBot = status;
+    ultimoQrAtual = qrString;
+
     const db = getDb();
     if (!db) return;
 
@@ -453,6 +460,129 @@ const MENSAGENS = {
         "Digite 3 para iniciar triagem Particular ou 'menu' para voltar."
 };
 
+function renderizarPaginaQrHtml(qrDataUrl) {
+    const conectado = statusAtualBot === 'online' && !qrDataUrl;
+    return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="refresh" content="${conectado ? '15' : '8'}" />
+  <title>Pareamento WhatsApp - Instituto Forja</title>
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 20px;
+    }
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 28px;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+    }
+    h1 { margin: 0 0 6px; font-size: 20px; }
+    .sub { margin: 0 0 20px; font-size: 13px; color: #94a3b8; }
+    .badge {
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 18px;
+      background: ${conectado ? '#064e3b' : '#451a03'};
+      color: ${conectado ? '#6ee7b7' : '#fcd34d'};
+      border: 1px solid ${conectado ? '#10b981' : '#f59e0b'};
+    }
+    .qr-box {
+      background: #ffffff;
+      padding: 16px;
+      border-radius: 12px;
+      display: inline-block;
+      margin: 0 auto 18px;
+    }
+    .qr-box img { display: block; width: 256px; height: 256px; }
+    .status-msg { font-size: 14px; line-height: 1.5; color: #e2e8f0; margin: 0 0 14px; }
+    .meta { font-size: 12px; color: #94a3b8; margin-top: 10px; }
+    .btn {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 10px 16px;
+      border-radius: 8px;
+      background: #2563eb;
+      color: #fff;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Instituto Forja</h1>
+    <p class="sub">Conexão WhatsApp • Secretaria Virtual</p>
+    <div class="badge">Status: ${statusAtualBot}</div>
+    ${
+        qrDataUrl
+            ? `<div class="qr-box"><img src="${qrDataUrl}" alt="QR Code WhatsApp" /></div>
+               <p class="status-msg">Abra o WhatsApp no celular, vá em <strong>Aparelhos conectados &gt; Conectar um aparelho</strong> e escaneie o código.</p>`
+            : `<p class="status-msg">${
+                  conectado
+                      ? 'WhatsApp conectado e respondendo normalmente.'
+                      : 'Aguardando geração do QR Code pelo servidor...'
+              }</p>`
+    }
+    <a class="btn" href="/qr">Atualizar agora</a>
+    <div class="meta">Firestore: ${isFirestoreAtivo() ? 'conectado' : 'local'} • ${new Date().toLocaleTimeString('pt-BR')}</div>
+  </div>
+</body>
+</html>`;
+}
+
+const PORT = process.env.PORT || 3000;
+http.createServer(async (req, res) => {
+    const rota = (req.url || '/').split('?')[0];
+
+    if (rota === '/' || rota === '/qr') {
+        try {
+            const qrDataUrl = ultimoQrAtual ? await QRCode.toDataURL(ultimoQrAtual) : null;
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end(renderizarPaginaQrHtml(qrDataUrl));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end('Erro ao gerar imagem do QR Code.');
+        }
+        return;
+    }
+
+    if (rota === '/status') {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({
+            servico: 'Secretaria Virtual Instituto Forja',
+            status: statusAtualBot,
+            firestore: isFirestoreAtivo(),
+            qrPendente: Boolean(ultimoQrAtual),
+            atualizadoEm: new Date().toLocaleString('pt-BR')
+        }));
+        return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Nao encontrado');
+}).listen(PORT, () => {
+    console.log(`Servidor HTTP ativo na porta ${PORT} (QR em /qr e JSON em /status)`);
+});
+
 async function iniciarBot() {
     console.log(
         isFirestoreAtivo()
@@ -477,7 +607,7 @@ async function iniciarBot() {
         if (qr) {
             await atualizarStatusBot('qr_pendente', qr);
             console.log('\n=================================================');
-            console.log('ESCANEIE O QR CODE ABAIXO NO SEU WHATSAPP:');
+            console.log('ESCANEIE O QR CODE EM /qr NO NAVEGADOR OU ABAIXO:');
             console.log('=================================================\n');
             qrcode.generate(qr, { small: true });
         }
