@@ -16,18 +16,37 @@ const {
     registrarNaMemoria,
     responderHumanizado
 } = require('./compreensao');
+const {
+    resumirParaSuperior,
+    registrarParecerSuperior,
+    refinarRespostaChefe
+} = require('./chefeEspecialista');
 
 const DB_FILE = path.join(__dirname, 'agendamentos.json');
 const AUTH_DIR = path.join(__dirname, 'auth_baileys');
+const JANELA_AGRUPAMENTO_MS = 1400;
 
 const sessoes = {};
+const idsProcessados = new Set();
+const filaAgrupamento = new Map();
+
 let statusAtualBot = 'iniciando';
 let ultimoQrAtual = null;
 let reconexaoTimer = null;
-let sockAtual = null;
 
 if (!fs.existsSync(DB_FILE)) {
     fs.writeFileSync(DB_FILE, JSON.stringify([], null, 2), 'utf8');
+}
+
+function marcarIdProcessado(msgId) {
+    if (!msgId) return false;
+    if (idsProcessados.has(msgId)) return true;
+    idsProcessados.add(msgId);
+    if (idsProcessados.size > 400) {
+        const primeiro = idsProcessados.values().next().value;
+        idsProcessados.delete(primeiro);
+    }
+    return false;
 }
 
 async function atualizarStatusBot(status, qrString = null) {
@@ -316,6 +335,73 @@ function agendarReconexao(delayMs = 3000) {
     }, delayMs);
 }
 
+async function processarLoteMensagens(sock, chatId, textos) {
+    const textoConsolidado = textos.join('\n').trim();
+    if (!textoConsolidado) return;
+
+    const mem = await carregarMemoriaContato(chatId);
+
+    if (!sessoes[chatId]) {
+        sessoes[chatId] = {
+            etapa: mem.fluxoAtual || 'MENU',
+            dados: mem.fluxoAtual && mem.fluxoAtual !== 'MENU'
+                ? { tipo: mem.fluxoAtual.replace('_ANDAMENTO', '') }
+                : {}
+        };
+    }
+
+    const sessao = sessoes[chatId];
+    await registrarNaMemoria(chatId, 'cliente', textoConsolidado);
+
+    const respostaBruta = await responderHumanizado(
+        chatId,
+        textoConsolidado,
+        sessao,
+        salvarRegistro
+    );
+
+    const respostaFinal = refinarRespostaChefe({
+        respostaBase: respostaBruta,
+        mem,
+        sessao,
+        textoAgrupado: textoConsolidado
+    });
+
+    if (respostaFinal) {
+        await registrarNaMemoria(chatId, 'secretaria', respostaFinal);
+        await sock.sendMessage(chatId, { text: respostaFinal });
+
+        const parecer = resumirParaSuperior({
+            chatId,
+            textoRecebido: textoConsolidado,
+            respostaSecretaria: respostaFinal,
+            sessao,
+            mem
+        });
+        await registrarParecerSuperior(parecer);
+        console.log(`[ENVIADO] Para: ${chatId} | Chefe (${parecer.prioridade}): ${parecer.acaoSugerida}`);
+    } else {
+        console.log(`[SEM RESPOSTA] responderHumanizado retornou vazio para ${chatId}`);
+    }
+}
+
+function enfileirarMensagem(sock, chatId, textoOriginal) {
+    const atual = filaAgrupamento.get(chatId) || { textos: [], timer: null };
+    atual.textos.push(textoOriginal);
+    if (atual.timer) clearTimeout(atual.timer);
+
+    atual.timer = setTimeout(async () => {
+        filaAgrupamento.delete(chatId);
+        try {
+            await processarLoteMensagens(sock, chatId, atual.textos);
+        } catch (err) {
+            console.error('[ERRO processarLoteMensagens]', err.message);
+        }
+    }, JANELA_AGRUPAMENTO_MS);
+
+    filaAgrupamento.set(chatId, atual);
+}
+
 async function iniciarBot() {
     if (reconexaoTimer) {
         clearTimeout(reconexaoTimer);
@@ -336,8 +422,6 @@ async function iniciarBot() {
         browser: ['Instituto Forja', 'Chrome', '1.0.0'],
         syncFullHistory: false
     });
-
-    sockAtual = sock;
 
     sock.ev.on('creds.update', async () => {
         try {
@@ -398,38 +482,16 @@ async function iniciarBot() {
                     continue;
                 }
 
+                if (marcarIdProcessado(msg.key.id)) {
+                    console.log(`[DUPLICADA IGNORADA] id=${msg.key.id} em ${chatId}`);
+                    continue;
+                }
+
                 const textoOriginal = extrairTexto(msg);
                 console.log(`[RECEBIDO] De: ${chatId} | Texto: "${textoOriginal}"`);
                 if (!textoOriginal) continue;
 
-                const mem = await carregarMemoriaContato(chatId);
-
-                if (!sessoes[chatId]) {
-                    sessoes[chatId] = {
-                        etapa: mem.fluxoAtual || 'MENU',
-                        dados: mem.fluxoAtual && mem.fluxoAtual !== 'MENU'
-                            ? { tipo: mem.fluxoAtual.replace('_ANDAMENTO', '') }
-                            : {}
-                    };
-                }
-
-                const sessao = sessoes[chatId];
-                await registrarNaMemoria(chatId, 'cliente', textoOriginal);
-
-                const respostaTexto = await responderHumanizado(
-                    chatId,
-                    textoOriginal,
-                    sessao,
-                    salvarRegistro
-                );
-
-                if (respostaTexto) {
-                    await registrarNaMemoria(chatId, 'secretaria', respostaTexto);
-                    await sock.sendMessage(chatId, { text: respostaTexto });
-                    console.log(`[ENVIADO] Para: ${chatId}`);
-                } else {
-                    console.log(`[SEM RESPOSTA] responderHumanizado retornou vazio para ${chatId}`);
-                }
+                enfileirarMensagem(sock, chatId, textoOriginal);
             } catch (err) {
                 console.error('[ERRO processarMensagem]', err.message);
             }
